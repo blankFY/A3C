@@ -1,0 +1,187 @@
+import numpy as np
+import math
+import keras
+from keras.models import Model, Sequential
+from keras.layers import Dense, Activation, Flatten, Convolution2D,Input
+from keras.callbacks import EarlyStopping
+from keras.utils import plot_model
+import datetime as d
+import keras.backend.tensorflow_backend as KTF
+import tensorflow as tf
+from NN_tf import NN_Generate
+from NN_KT import NN_Generator
+
+
+class env_model_autodesign():
+    def __init__(self,d_train,d_train_y, d_val, d_val_y, d_test,d_test_y, name):
+        self.state = np.zeros(4)
+        self.state_index = 0
+        self.max_layer = 6
+        self.dim_input = d_train.shape[1]
+        self.d_train = d_train
+        self.d_train_y = d_train_y
+        self.d_test = d_test
+        self.d_test_y = d_test_y
+        self.d_val = d_val
+        self.d_val_y = d_val_y
+
+        self.action_range = 0.9
+        self.info = {'num_layer':3,'activation':'relu','nod':[0, 0, 0, 0, 0],'loss':'mse','optimizer':'adam','batch_size':256,'epochs':200, 'regularizer_rate':5.0 / 50000}
+        self.max_epoch = self.info['epochs']
+        self.name = name
+
+    def reset(self):
+        self.state = np.zeros(6)
+        self.state_index = 0
+        return self.state
+
+    def step(self, action):
+        # temp = (action*self.dim_input) - (action*self.dim_input)%10
+        if self.state_index == 0:
+            temp = math.ceil(action*self.info['num_layer'])
+            if temp < 2:
+                temp = 2
+            else:
+                temp = int(temp)
+            self.state[self.state_index] = temp
+            self.state_index += 1
+            _state = self.state
+            return _state, -1, False
+        elif self.state_index == 1:
+            temp = math.ceil(action * self.dim_input)
+            self.state[self.state_index] = temp
+            self.state_index += 1
+            _state = self.state
+            return _state, -1, False
+
+        elif self.state_index <= self.max_layer:
+            temp = math.ceil(action*self.state[self.state_index - 1])
+            self.state[self.state_index] = temp
+            self.state_index += 1
+            _state = self.state
+
+            if self.state[0] == self.state_index - 1:
+                self.info['num_layer'] = _state[0]
+                self.info['nod'] = _state[1:6]
+                reward = self.reward(self.info)
+                return _state, reward, True
+            else:
+                return _state, -1, False
+
+        # else:
+        #     temp = action[-1]
+        #
+        # self.state[self.state_index] = temp
+        # self.state_index += 1
+        # _state = self.state
+        # if self.state_index < self.max_layer:
+        #     return _state, -1, False
+        # elif self.state_index == self.max_layer:
+        #     self.info['nod'] = np.array(_state[:3])
+        #     # reward = self.reward(self.info)
+        #     return _state, -1, False
+        # else:
+        #     self.info['nod'] = np.array(_state[:3])
+        #     self.info['regularizer_rate'] = _state[-1]
+        #     print('获得的action：' + str(_state[-1]))
+        #     reward = self.reward(self.info)
+        #     return _state, reward, True
+
+    def reward(self,state):
+        # score = NN_Generate(self.name, self.d_train,self.d_train_y, self.d_test, self.d_test_y, state)
+        score = NN_Generator(self.name, self.d_train,self.d_train_y,self.d_val,self.d_val_y,
+                             self.d_test,self.d_test_y,state)
+        # model = NN_generator(self.name, self.d_train, self.d_train_y, self.d_val, self.d_val_y,
+        #                      self.d_test, self.d_test_y, state)
+        # log = model.model_fit()
+        # if len(log.epoch) < self.max_epoch:
+        #     return -1
+        # else:
+        #     result = model.model_test()
+        #     return result[1]*10
+        # result = model.model_test()
+        if score >= 0.8:
+            score_out = score * 10000
+        else:
+            score_out = score * 1000
+        return score_out
+
+
+class NN_generator():
+
+    def __init__(self, scope, train_data,train_data_y,validation_data,validation_data_y,test_data,test_data_y,info):
+        self.train_data = train_data
+        self.train_data_y = train_data_y
+        self.validation_data = validation_data
+        self.validation_data_y = validation_data_y
+        self.test_data = test_data
+        self.test_data_y = test_data_y
+        self.num_layer = info['num_layer']
+        self.acti_f = info['activation']
+        self.nod = info['nod']
+        self.loss = info['loss']
+        self.optimizer = info['optimizer']
+        self.batch_size = info['batch_size']
+        self.epochs = info['epochs']
+        self.scope = scope
+
+        self.model = self.create_model()
+
+
+    # def create_model(self):
+    #     model = Sequential()
+    #     model.add(Dense(units = self.train_data.shape[1], name = 'input'))
+    #     temp = np.delete(self.nod,np.where(self.nod == 0))
+    #     if 0 in self.nod:
+    #         cengshu = len(temp)
+    #     else:
+    #         cengshu = len(self.nod)
+    #     for i in range(cengshu):
+    #         model.add(Dense(temp[i], activation=self.acti_f,name = 'layer'+str(self.nod[i])))
+    #     model.add(Dense(self.validation_data_y.shape[1],activation = 'softmax', name = 'output' ))
+    #     model.compile(loss = self.loss, optimizer = self.optimizer )
+    #     plot_model(model, to_file='model1.png', show_shapes=True)
+    #     return model
+    #
+    def create_model(self):
+        with tf.variable_scope(self.scope):
+        # config = tf.ConfigProto()
+        # config.gpu_options.allow_growth=True
+        # session = tf.Session(config=config)
+            session = KTF.get_session()
+            KTF.set_session(session)
+
+            input = Input(shape = (self.train_data.shape[1],), name = 'input')
+            temp = np.delete(self.nod,np.where(self.nod == 0))
+            temp = temp.astype(int)
+            if 0 in self.nod:
+                cengshu = len(temp)
+            else:
+                cengshu = len(self.nod)
+            for ii in range(cengshu):
+                if ii == 0:
+                    l = Dense(temp[ii], activation=self.acti_f,name = 'layer'+str(temp[ii]))(input)
+                else:
+                    l = Dense(temp[ii], activation=self.acti_f,name = 'layer'+str(temp[ii]))(l)
+                    # l = Dense(temp[i], activation=self.acti_f)(l)
+            output = Dense(self.validation_data_y.shape[1],activation = 'softmax', name = 'output' )(l)
+            model = Model(inputs = input, outputs =output)
+            model.compile(loss = self.loss, optimizer = self.optimizer,metrics=['accuracy'] )
+            # KTF.clear_session()
+            # self.graph.finalize()
+
+        # plot_model(model, to_file= r'model1_'+d.datetime.now().strftime("%Y%m%d%H%M%S")+'.png', show_shapes=True)
+        return model
+
+    def model_fit(self):
+        result = self.model.fit(x = self.train_data, y = self.train_data_y,batch_size = self.batch_size, verbose= 0, epochs = self.epochs)
+        # result = self.model.fit(x = self.train_data, y = self.train_data_y,batch_size = self.batch_size, verbose= 0,
+        #                         epochs = self.epochs,validation_data=(self.validation_data,self.validation_data_y),
+        #                         callbacks = [EarlyStopping(monitor='val_acc',mode = 'max',patience = 5)])
+        print(result.epoch[-1])
+        return result
+    def model_test(self):
+        score = self.model.evaluate(self.test_data,self.test_data_y, verbose = 0)
+        KTF.clear_session()
+        return score # score[0] 为loss， score[1]为准确率
+
