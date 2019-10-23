@@ -1,0 +1,100 @@
+from keras.layers import Dense, Input
+import tensorflow as tf
+import numpy as np
+from keras import regularizers
+from keras import Model
+
+
+def NN_Generator(scope ,train_data, train_data_y, validation_data, validation_data_y, test_data, test_data_y, info):
+    num_layer = info['num_layer']
+    acti_f = info['activation']
+    nod = info['nod']
+    loss = info['loss']
+    optimizer = info['optimizer']
+    batch_size = info['batch_size']
+    epochs = info['epochs']
+    regularizer_rate = info['regularizer_rate']/5000
+    temp = np.delete(nod,np.where(nod == 0))
+    temp = temp.astype(int)
+
+    with tf.variable_scope(scope):
+        x = tf.placeholder(tf.float32, [None, train_data.shape[1]], 'x')
+        y = tf.placeholder(tf.int32, [None, train_data_y.shape[1]], 'y')
+
+        # input = Input(shape=(self.train_data.shape[1],), name='input')
+        if 0 in nod:
+            cengshu = len(temp)
+        else:
+            cengshu = len(nod)
+        for ii in range(cengshu):
+            if ii == 0:
+                l = Dense(temp[ii], activation=acti_f, name='layer' + str(temp[ii]), kernel_regularizer= regularizers.l2())(x)
+            else:
+                l = Dense(temp[ii], activation=acti_f, name='layer' + str(temp[ii]))(l)
+                # l = Dense(temp[i], activation=self.acti_f)(l)
+        l_o = Dense(validation_data_y.shape[1], activation='softmax', name='output')(l)
+
+
+        with tf.name_scope('loss'):
+            xentropy = tf.nn.softmax_cross_entropy_with_logits(logits= l_o, labels= y)
+            loss = tf.reduce_mean(xentropy, name = 'loss')
+            loss_summary = tf.summary.scalar('loss', loss)
+
+        global_step = tf.Variable(0, trainable = False)
+        with tf.name_scope('train'):
+            optimizer = tf.train.AdamOptimizer()
+            grads_and_vars = optimizer.compute_gradients(loss)
+            train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
+
+        with tf.name_scope('eval'):
+            predictions = tf.nn.softmax(l_o)
+            correct_prediction=tf.equal(tf.argmax(y,1),tf.argmax(l_o,1))
+            accuracy=tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+
+        SESS = tf.Session()
+        SESS.run(tf.global_variables_initializer())
+
+        for i in range(200):
+            # training train_step 和 loss 都是由 placeholder 定义的运算，所以这里要用 feed 传入参数
+            SESS.run(train_op, feed_dict={x: train_data, y: train_data_y})
+            if i % 199 == 0:
+                # to see the step improvement
+                print(SESS.run(loss, feed_dict={x: train_data, y: train_data_y}))
+                test_acc = SESS.run(accuracy, feed_dict={x: test_data, y: test_data_y})
+                print(test_acc)
+                lo_out = SESS.run(l_o, feed_dict={x: test_data, y: test_data_y})
+                np.save('layerlast_out.npy', lo_out)
+                # if test_acc > 0.9 :
+                #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
+                #     np.save('layerlast_out-0.9.npy', lo_out)
+                # elif test_acc < 0.8:
+                #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
+                #     np.save('layerlast_out-0.8.npy', lo_out)
+                # elif test_acc > 0.8 and test_acc < 0.9:
+                #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
+                #     np.save('layerlast_out-0.85.npy', lo_out)
+                # elif test_acc > 0.9 and test_acc <0.95 :
+                #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
+                #     np.save('layerlast_out-0.95.npy', lo_out)
+                # elif test_acc > 0.95:
+                #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
+                #     np.save('layerlast_out-1.npy', lo_out)
+
+        # loss_val, summary_str,test_pred, test_acc = SESS.run(
+        #                                     [loss, summary_op,predictions, accuracy],\
+        #                                     feed_dict={x: test_data, y: test_data_y})
+        # sess.close()
+        SESS.close()
+        # tf.reset_default_graph()
+        return test_acc
+
+# train_x = np.load(r'data_pump\train_data.npy')
+# train_y = np.load(r'data_pump\train_data_y.npy')
+# test_x = np.load(r'data_pump\test_data.npy')
+# test_y = np.load(r'data_pump\test_data_y.npy')
+# validation_x = np.load(r'data_pump\test_data.npy')
+# validation_y = np.load(r'data_pump\test_data_y.npy')
+# info = {'num_layer':3,'activation':'relu','nod':[500,500,256],'loss':'mse','optimizer':'adam','batch_size':256,'epochs':200,'regularizer_rate':5.0 / 50000}
+#
+# test_acc1 = NN_Generator('w0',train_x,train_y,validation_x, validation_y, test_x, test_y,info)
+# print('test_acc:' + str(test_acc1))
