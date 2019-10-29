@@ -22,6 +22,13 @@ from ENV_design import env_model_autodesign
 os.environ['CUDA_VISIBLE_DEVICES']='0'
 
 t1 = time.time()
+'''data load'''
+train_x = np.load(r'data_pump\train_data.npy')
+train_y = np.load(r'data_pump\train_data_y.npy')
+test_x = np.load(r'data_pump\test_data.npy')
+test_y = np.load(r'data_pump\test_data_y.npy')
+val_x = np.load(r'data_pump/val_data.npy')
+val_y = np.load(r'data_pump/val_data_y.npy')
 
 '''parameters setting'''
 GAME = 'PHM'
@@ -30,9 +37,9 @@ LOG_DIR = './log'
 # N_WORKERS = multiprocessing.cpu_count()
 N_WORKERS = multiprocessing.cpu_count()
 MAX_EP_STEP = 6
-MAX_GLOBAL_EP = 2000
+MAX_GLOBAL_EP = 10000
 GLOBAL_NET_SCOPE = 'Global_Net'
-UPDATE_GLOBAL_ITER = 10
+UPDATE_GLOBAL_ITER = 20
 GAMMA = 0.9
 ENTROPY_BETA = 0.1
 LR_A = 0.001    # learning rate for actor
@@ -41,7 +48,11 @@ GLOBAL_RUNNING_R = []
 GLOBAL_EP = 0
 N_S = 6
 N_A = 1
-A_BOUND = [0.5, 1.8]
+A_layers_num_BOUND = [2, 5]
+A_BOUND = [int(0.8*train_x.shape[1]), int(1.5*train_x.shape[1])]
+# A_BOUND = [500, 800]
+S = []
+R = []
 
 
 
@@ -52,12 +63,7 @@ GLOBAL_A = []
 GLOBAL_T_SNE = []
 
 
-train_x = np.load(r'data_pump\train_data.npy')
-train_y = np.load(r'data_pump\train_data_y.npy')
-test_x = np.load(r'data_pump\test_data.npy')
-test_y = np.load(r'data_pump\test_data_y.npy')
-val_x = np.load(r'data_pump/val_data.npy')
-val_y = np.load(r'data_pump/val_data_y.npy')
+
 
 # env = env_model_autodesign(train_x,train_y, val_x, val_y, test_x, test_y, 'w')
 
@@ -82,6 +88,7 @@ class ACNet(object):
                 td = tf.subtract(self.v_target, self.v, name='TD_error')
                 with tf.name_scope('c_loss'):
                     self.c_loss = tf.reduce_mean(tf.square(td))
+                    tf.summary.scalar('c_loss', self.c_loss)
 
                 with tf.name_scope('wrap_a_out'):
                     mu, sigma = mu * A_BOUND[1], sigma + 1e-4
@@ -94,7 +101,10 @@ class ACNet(object):
                     entropy = normal_dist.entropy()  # encourage exploration
                     self.exp_v = ENTROPY_BETA * entropy + exp_v
                     self.a_loss = tf.reduce_mean(-self.exp_v)
+                    tf.summary.scalar('a_loss', self.a_loss)
 
+                with tf.name_scope('choose_a_layers_num'):
+                    self.A_layers_num = tf.clip_by_value(tf.squeeze(normal_dist.sample(1), axis=[0, 1]), A_layers_num_BOUND[0], A_layers_num_BOUND[1])
                 with tf.name_scope('choose_a'):  # use local params to choose action
                     self.A = tf.clip_by_value(tf.squeeze(normal_dist.sample(1), axis=[0, 1]), A_BOUND[0], A_BOUND[1])
                 with tf.name_scope('local_grad'):
@@ -128,9 +138,12 @@ class ACNet(object):
     def pull_global(self):  # run by a local
         SESS.run([self.pull_a_params_op, self.pull_c_params_op])
 
-    def choose_action(self, s):  # run by a local
+    def choose_action(self, s, state_index):  # run by a local
         s = s[np.newaxis, :]
-        return SESS.run(self.A, {self.s: s})
+        if state_index == 0:
+            return SESS.run(self.A_layers_num, {self.s: s})
+        else:
+            return SESS.run(self.A, {self.s: s})
 
 class Worker(object):
     def __init__(self, name, globalAC):
@@ -141,6 +154,7 @@ class Worker(object):
 
     def work(self):
         global GLOBAL_RUNNING_R, GLOBAL_EP, ACC, GLOBAL_S, GLOBAL_A, GLOBAL_S0, GLOBAL_T_SNE
+        global S, R
         total_step = 1
         buffer_s, buffer_a, buffer_r = [], [], []
         while not COORD.should_stop() and GLOBAL_EP < MAX_GLOBAL_EP:
@@ -149,9 +163,10 @@ class Worker(object):
             for ep_t in range(MAX_EP_STEP):
                 # if self.name == 'W_0':
                 #     self.env.render()
-                a = self.AC.choose_action(s)
+
+                a = self.AC.choose_action(s, self.env.state_index)
                 # print(a)
-                s_, r, done = self.env.step(a)
+                s_, r, done = self.env.step(a, S, R)
 
                 # print(self.name)
                 # print(s_)
@@ -168,6 +183,7 @@ class Worker(object):
                         v_s_ = 0   # terminal
                     else:
                         v_s_ = SESS.run(self.AC.v, {self.AC.s: s_[np.newaxis, :]})[0, 0]
+
                     buffer_v_target = []
                     for r in buffer_r[::-1]:    # reverse buffer r
                         v_s_ = r + GAMMA * v_s_
@@ -179,7 +195,7 @@ class Worker(object):
                     GLOBAL_S0.append(buffer_s)
                     GLOBAL_A.append(buffer_a)
                     if buffer_r[-1] >0:
-                        ACC.append(buffer_r[-1]/1000)
+                        ACC.append(buffer_r[-1][0])
                     buffer_s, buffer_a, buffer_v_target = np.vstack(buffer_s), np.vstack(buffer_a), np.vstack(buffer_v_target)
                     feed_dict = {
                         self.AC.s: buffer_s,
@@ -211,6 +227,7 @@ class Worker(object):
 
 if __name__ == "__main__":
     SESS = tf.Session()
+
 
     # with tf.device("/cpu:0"):
     OPT_A = tf.train.RMSPropOptimizer(LR_A, name='RMSPropA')
