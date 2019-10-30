@@ -12,6 +12,8 @@ from NN_tf import NN_Generate
 from NN_KT import NN_Generator
 
 
+
+
 class env_model_autodesign():
     def __init__(self,d_train,d_train_y, d_val, d_val_y, d_test,d_test_y, name):
         self.state = np.zeros(4)
@@ -35,10 +37,10 @@ class env_model_autodesign():
         self.state_index = 0
         return self.state
 
-    def step(self, action):
+    def step(self, action, S, R):
         # temp = (action*self.dim_input) - (action*self.dim_input)%10
         if self.state_index == 0:
-            temp = math.ceil(action*self.info['num_layer'])
+            temp = math.ceil(action)
             if temp < 2:
                 temp = 2
             else:
@@ -48,14 +50,14 @@ class env_model_autodesign():
             _state = self.state
             return _state, -1, False
         elif self.state_index == 1:
-            temp = math.ceil(action * self.dim_input)
+            temp = math.ceil(action)
             self.state[self.state_index] = temp
             self.state_index += 1
             _state = self.state
             return _state, -1, False
 
         elif self.state_index <= self.max_layer:
-            temp = math.ceil(action*self.state[self.state_index - 1])
+            temp = math.ceil(action)
             self.state[self.state_index] = temp
             self.state_index += 1
             _state = self.state
@@ -63,7 +65,16 @@ class env_model_autodesign():
             if self.state[0] == self.state_index - 1:
                 self.info['num_layer'] = _state[0]
                 self.info['nod'] = _state[1:6]
-                reward = self.reward(self.info)
+
+                if _state[1:6].tolist() in S:
+                    r_index = S.index(_state[1:6].tolist())
+                    reward = R[r_index]
+                    print('未训练')
+                else:
+                    reward = self.reward(self.info)
+                    R.append(reward)
+                    S.append(_state[1:6].tolist())
+                    print('已训练')
                 return _state, reward, True
             else:
                 return _state, -1, False
@@ -101,9 +112,9 @@ class env_model_autodesign():
         #     return result[1]*10
         # result = model.model_test()
         if score >= 0.8:
-            score_out = score * 10000
+            score_out = score * 100
         else:
-            score_out = score * 1000
+            score_out = score * 100
         return score_out
 
 
