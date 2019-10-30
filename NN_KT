@@ -17,6 +17,9 @@ def NN_Generator(scope ,train_data, train_data_y, validation_data, validation_da
     temp = np.delete(nod,np.where(nod == 0))
     temp = temp.astype(int)
 
+
+
+
     with tf.variable_scope(scope):
         x = tf.placeholder(tf.float32, [None, train_data.shape[1]], 'x')
         y = tf.placeholder(tf.int32, [None, train_data_y.shape[1]], 'y')
@@ -50,20 +53,37 @@ def NN_Generator(scope ,train_data, train_data_y, validation_data, validation_da
             predictions = tf.nn.softmax(l_o)
             correct_prediction=tf.equal(tf.argmax(y,1),tf.argmax(l_o,1))
             accuracy=tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+            acc_summary = tf.summary.scalar('acc', accuracy)
 
+        # init = tf.initialize_all_variables()
         SESS = tf.Session()
         SESS.run(tf.global_variables_initializer())
+        # merged = tf.summary.merge_all()
+        # merged = merge_summary([loss_summary, acc_summary])
+        # writer = tf.summary.FileWriter("loss_logs/", SESS.graph)
 
-        for i in range(200):
+        # SESS.run(init)
+
+        for i in range(60):
             # training train_step 和 loss 都是由 placeholder 定义的运算，所以这里要用 feed 传入参数
             SESS.run(train_op, feed_dict={x: train_data, y: train_data_y})
-            if i % 199 == 0:
+            # summary, _ = SESS.run([merged, train_op], feed_dict={x: train_data, y: train_data_y})
+            # writer.add_summary(summary, i)
+            # rs, _ = SESS.run([merged, loss], feed_dict={x: train_data, y: train_data_y})
+            # writer.add_summary(summary, i)
+
+
+            if i % 59 == 0:
                 # to see the step improvement
-                print(SESS.run(loss, feed_dict={x: train_data, y: train_data_y}))
+                # print(SESS.run(loss, feed_dict={x: train_data, y: train_data_y}))
+                # rs = SESS.run(merged, feed_dict={x: train_data, y: train_data_y})
+                # writer.add_summary(rs, i)
                 test_acc = SESS.run(accuracy, feed_dict={x: test_data, y: test_data_y})
-                print(test_acc)
-                lo_out = SESS.run(l_o, feed_dict={x: test_data, y: test_data_y})
-                np.save('layerlast_out.npy', lo_out)
+                # print(test_acc)
+                # lo_out = SESS.run(l_o, feed_dict={x: test_data, y: test_data_y})
+                # np.save('layerlast_out.npy', lo_out)
+
+
                 # if test_acc > 0.9 :
                 #     lo_out = SESS.run(l_o, feed_dict = {x: test_data, y: test_data_y})
                 #     np.save('layerlast_out-0.9.npy', lo_out)
@@ -94,7 +114,7 @@ def NN_Generator(scope ,train_data, train_data_y, validation_data, validation_da
 # test_y = np.load(r'data_pump\test_data_y.npy')
 # validation_x = np.load(r'data_pump\test_data.npy')
 # validation_y = np.load(r'data_pump\test_data_y.npy')
-# info = {'num_layer':3,'activation':'relu','nod':[500,500,256],'loss':'mse','optimizer':'adam','batch_size':256,'epochs':200,'regularizer_rate':5.0 / 50000}
+# info = {'num_layer':5,'activation':'relu','nod':[89,149,89,145,128],'loss':'mse','optimizer':'adam','batch_size':256,'epochs':200,'regularizer_rate':5.0 / 50000}
 #
 # test_acc1 = NN_Generator('w0',train_x,train_y,validation_x, validation_y, test_x, test_y,info)
 # print('test_acc:' + str(test_acc1))
